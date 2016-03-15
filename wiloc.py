@@ -2,74 +2,62 @@
 
 import numpy as np
 from pymongo import MongoClient
-from json import dump
+from json import load
 from datetime import datetime
 
 
-def read_mongo_wifi():
-    mongo = MongoClient(host="localhost", port=52345)
+from dateutil.parser import parse
 
-    roslog = mongo.roslog
+with open('data-aaf.json', 'r') as infile:
+    j = load(infile)
 
-    cursor = roslog.wifiscanner.find()
+c = 0
 
-    bssids = set()
-    dataset = {}
-    count = 0
+new_d = {}
+for k in j['data']:
+    v = j['data'][k]
+    nk = parse(k)
+    new_d[nk] = v
+    c += 1
+    if c > 20000:
+        break
+    #print nk
 
-    for e in cursor:
-        values = e['status'][0]['values']
+keys = new_d.keys()
+keys.sort()
+print keys
 
-        d = {'_meta': e['_meta']}
-        rp = roslog.robot_pose.find({'_meta.inserted_at': {
-          '$gte': d['_meta']['inserted_at']}}).limit(1)
-        d['position'] = rp[0]['position']
-        d['_meta']['inserted_at'] = d['_meta']['inserted_at'].isoformat()
 
-        for v in values:
-            d[v['key']] = v['value']
-        bssids.add(d['bssid'])
+n_bssids = len(j['bssids'])
+n_points = len(keys)
+data = np.mat(np.zeros((n_points, n_bssids+3)))
 
-        count += 1
-        dataset[d['_meta']['inserted_at']] = d
+last = {}
+for b in j['bssids']:
+    last[b] = -80
 
-        print count
-#        if count > 10:
-#          break
 
-    print bssids
-    #print dataset
+c = 0
+for k in keys:
+    v = new_d[k]
+    bssid = v['bssid']
+    last[bssid] = v['signal']
+    data[c, 0] = v['position']['x']
+    data[c, 1] = v['position']['y']
+    data[c, 2] = 1
+    data[c, 3:] = last.values()
+    c += 1
 
-    j = {
-      'bssids': list(bssids),
-      'data': dataset
-    }
+print data.shape
 
-    with open('data.json', 'w') as outfile:
-        dump(j, outfile, sort_keys=True, indent=4)
-
-read_mongo_wifi()
-
-data = np.mat([
-  [1.0, 1.0, -40, -60, -80],
-  [2.0, 1.0, -60, -40, -60],
-  [2.0, 2.0, -80, -60, -40],
-  [1.0, 2.0, -60, -80, -60],
-  [3.0, 1.0, -80, -60, -70],
-  ])
-
-P = np.transpose(data[0:, 0:2])
-P = np.vstack([P, [1, 1, 1, 1, 1]])
-W = np.transpose(data[0:, 2:])
+P = np.transpose(data[0:, 0:3])
+W = np.transpose(data[0:, 3:])
 
 # A*P = W <=> A= W \ P
 
 Pp = np.linalg.pinv(P)
 
-print P
-
 A = W * Pp
 
-print A
+print (A * P) - W
 
-print A * P
