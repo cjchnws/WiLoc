@@ -15,6 +15,69 @@ from dateutil.parser import parse
 
 np.set_printoptions(precision=3, linewidth=200)
 
+
+class EKF:
+
+    def __init__(self, R, Q,
+                 A=None, B=None, C=None,
+                 funcH=None, funcJacobianH=None):
+        if Q.ndim > 1:
+            self.Q = Q
+        else:
+            self.Q = np.diag(Q)
+        if R.ndim > 1:
+            self.R = R
+        else:
+            self.R = np.diag(R)
+
+        self.n_states = self.R.shape[0]
+        self.n_obs = self.Q.shape[0]
+
+        self.funcH = funcH
+        self.funcJacobianH = funcJacobianH
+
+        if A is not None:
+            self.A = A
+        else:
+            self.A = np.eye(self.n_states)
+
+        if B is not None:
+            self.B = B
+        else:
+            self.B = np.eye(self.n_states)
+
+        if C is not None:
+            self.C = C
+        else:
+            self.C = np.ones((self.n_obs, self.n_states))
+
+    def predict(self, mu, Sigma, u=None, A=None, B=None):
+        if A is None:
+            A = self.A
+        if B is None:
+            B = self.B
+
+        print "not implemented yet"
+        return mu, Sigma
+
+    def update(self, mu, Sigma, z):
+        Q = self.Q
+        expect_obs = self.funcH(mu)
+        H = self.funcJacobianH(mu)
+        print 'Kalman update: '
+        print '  expect_obs=', expect_obs
+        print "  mu=", mu
+        print "  Sigma=", Sigma
+        print '  H=', H
+        K = Sigma * H.T * np.linalg.inv(H * Sigma * H.T + Q)
+        print '  K=', K
+        mu_e = mu + K * (z - expect_obs)
+        print '  me_e=', mu_e
+        Sigma_e = (np.eye(self.n_states) - K * H) * Sigma
+        print '  Sigma_e=', Sigma_e
+        return mu_e, Sigma_e
+
+
 class WiLoc:
 
     def __init__(self):
@@ -273,23 +336,30 @@ class WiLoc:
             print '  % 4.2f %s' % (x, bars)
         print '==='
 
-        #cv.waitKey(0)
+    def augment_raw_data(self, raw_data):
+        squared = raw_data[0:2, :] ** 2
+        ones = np.ones(squared.shape)
+        data = np.mat(np.vstack((raw_data[0:2, :],
+                                squared, ones, raw_data[2:, :])))
+        self.times = np.mat([[0, 1, 2, 3]])
+        return data
 
     def generate_simple(self):
-        self.data = np.mat([
-          [0, 0, 0, 0, 1, 1, 1, 4, 0],
-          [1, 0.1, 1, 0.01, 1, 1, 0, 1, 1],
-          [2, 0.1, 4, 0.01, 1, 1, 1, 0, 4],
-          [3, 0, 9, 0, 1, 1, 4, 1, 9]
+        raw_data = np.array([
+          [0, 0, 1, 4, 0],
+          [1, 0.1, 0, 1, 1],
+          [2, 0.1, 1, 0, 4],
+          [3, 0, 4, 1, 9]
           ]).T
-        self.times = np.mat([[0, 1, 2, 3]])
+        self.data = self.augment_raw_data(raw_data)
+        self.times = np.arange(0, self.data.shape[1])
 
     def display_wifi_maps(self, resolution=0.1):
-        xb = self.min_pos[0,0]
-        xe = self.max_pos[0,0]
+        xb = self.min_pos[0, 0]
+        xe = self.max_pos[0, 0]
         xsteps = int((xe - xb) / resolution)
-        yb = self.min_pos[1,0]
-        ye = self.max_pos[1,0]
+        yb = self.min_pos[1, 0]
+        ye = self.max_pos[1, 0]
         ysteps = int((ye - yb) / resolution)
         print ysteps
         r = locator.grid_query(np.linspace(xb, xe, xsteps),
@@ -328,12 +398,17 @@ if __name__ == "__main__":
     # print 'JacH', locator.JacH(np.array([[3,0]]).T)
     # print 'funcH', locator.funcH(np.array([2,0]).T)
 
+    R = np.array([0.1, 0.1])
+    Q = np.eye(locator.n_bssids) * 0.5
+
+    ekf = EKF(R, Q, funcH=locator.funcH, funcJacobianH=locator.JacH)
+
     Sigma = np.mat([[0.3, 0], [0, 0.3]])
     mu = np.mat([2, 0.5]).T
     z = np.mat([4, 1, 9]).T
 
     while True:
-        mu, Sigma = locator.update(mu, Sigma, z)
+        mu, Sigma = ekf.update(mu, Sigma, z)
         key = cv.waitKey(10000)
         if key == ord('q'):
             break
