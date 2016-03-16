@@ -75,11 +75,11 @@ class EKF:
 
         # use the Jacobian to estimate the local (linear) changes
         H = self.funcJacobianH(mu)
-        Hn = np.zeros((H.shape[0], H.shape[1]+2))
-        Hn[:,:-2] = H
-        Hn[:,2:] = H
-        print H.shape, Hn.shape
-        H = np.mat(Hn)
+        #Hn = np.zeros((H.shape[0], H.shape[1]+2))
+        #Hn[:,:-2] = H
+        #Hn[:,2:] = H
+        #print H.shape, Hn.shape
+        #H = np.mat(Hn)
 
         # compute the Kalman gain
         K = Sigma * H.T * np.linalg.inv(H * Sigma * H.T + Q)
@@ -217,6 +217,17 @@ class WiLoc:
     def draw_state(self, img, mu, sigma=None, color=(0, 0, 255)):
         p = self.coord_to_pixel(img, mu)
         cv.circle(img, p, 3, color, -1)
+        if sigma is not None:
+            vals, vecs = np.linalg.eigh(sigma[:2,:2])
+            order = vals.argsort()[::-1]
+            vals = vals[order] * 5.96 # make it 95 conf
+            vecs = vecs[:,order] 
+            print 'VECS', vecs, vals
+            theta = np.degrees(np.arctan2(*vecs[:,0][::-1]))
+            cv.ellipse(img, (int(p[0]),int(p[1])),
+                       (int(vals[0]), int(vals[1])),
+                       int(theta), 0, 360, color, 2)
+            print theta
 
 
     def draw_locations(self, img, data, color=(0, 0, 255)):
@@ -433,17 +444,27 @@ if __name__ == "__main__":
     # print 'funcH', locator.funcH(np.array([2,0]).T)
 
     A = np.mat([
-      [1, 0, 0, 0],
-      [0, 1, 0, 0],
-      [0, 0, 1, 0],
-      [0, 0, 0, 1],
+      [1, 0],
+      [0, 1],
       ])
     B = np.mat([
-      [1, 0, 0, 0],
-      [0, 1, 0, 0],
+      [1, 0],
+      [0, 1],
       ]).T
-    R = np.array([0.05, 0.05, .1, .1])
-    Q = locator.C_W
+    R = np.array([0.1, 0.1])
+    Q = locator.C_W 
+    # A = np.mat([
+    #   [1, 0, 0, 0],
+    #   [0, 1, 0, 0],
+    #   [0, 0, 1, 0],
+    #   [0, 0, 0, 1],
+    #   ])
+    # B = np.mat([
+    #   [1, 0, 0, 0],
+    #   [0, 1, 0, 0],
+    #   ]).T
+    # R = np.array([0.05, 0.05, .1, .1])
+    # Q = locator.C_W 
 
     ekf = EKF(R, Q, A=A, B=B, funcH=locator.funcH, funcJacobianH=locator.JacH)
 
@@ -457,9 +478,10 @@ if __name__ == "__main__":
 
     locator.draw_locations(img, locator.data[0:2,valid_points], color=(255, 255, 255))
 
-    Sigma = np.eye(4) * 10
-    mu = locator.data[0:4,valid_points[0]] - 20
-    mu[2:4,0] = [[0,0]]
+    #Sigma = np.eye(4) * 10
+    Sigma = np.eye(2) * 10
+    mu = locator.data[0:2,valid_points[0]] - 20
+    #mu[2:4,0] = [[0,0]]
     for p in valid_points:
         img  = np.zeros((600,300,3), np.uint8)+100
         z = locator.data[locator.split_PW:,p]
