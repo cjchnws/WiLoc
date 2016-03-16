@@ -11,10 +11,10 @@ def read_mongo_wifi():
 
     roslog = mongo.roslog
 
-    cursor = roslog.wifiscanner.find()
+    cursor = roslog.wifiscanner.find({'status.values.key': 'essid', 'status.values.value':'STRANDS'}).sort([('_meta.inserted_at', 1)])
 
     bssids = set()
-    dataset = {}
+    dataset = []
     count = 0
 
     for e in cursor:
@@ -31,11 +31,11 @@ def read_mongo_wifi():
         bssids.add(d['bssid'])
 
         count += 1
-        dataset[d['_meta']['inserted_at']] = d
+        dataset.append(d)
 
         print count
-#        if count > 10:
-#          break
+        if count > 10:
+            break
 
     print bssids
     #print dataset
