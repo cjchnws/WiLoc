@@ -199,11 +199,30 @@ class WiLoc:
 
         self.A = self.W * self.Pp
 
-
     def query(self, x, y):
-        pos = np.mat([x, y, x ** 2, y ** 2]).T
-        query = pos - self.mu_P
-        return (self.A * query) + self.mu_W
+        pos = np.mat([x, y]).T
+        obs = self.funcH(pos)
+        return obs
+
+    def update(self, mu, Sigma, z):
+        z = z - self.mu_W
+        mu = mu - self.mu_P[0:2]
+        obs = self.funcH(mu)
+        H = self.JacH(mu)
+        print 'Kalman update: '
+        print "  mu=", mu
+        print "  Sigma=", Sigma
+        print '  H=', H
+        Q = np.eye(self.n_bssids) * 0.1
+        print '  Q=', Q
+        K = Sigma * H.T * np.linalg.inv(H * Sigma * H.T + Q)
+        print '  K=', K
+        mu_e = mu + K * (z - self.funcH(mu))
+        print '  me_e=', mu_e
+        Sigma_e = (np.eye(2) - K * H) * Sigma
+        print '  Sigma_e=', Sigma_e
+#        sigma_new = (np.eye())
+        return obs
 
     def augment_state(self, orig):
         # assumes the original state to have 2 coordinates
@@ -214,12 +233,14 @@ class WiLoc:
             return np.vstack((a, a * a))
 
     def JacH(self, state):
-        j = np.ones((self.n_bssids, 4))
-        j[:,2] = state[0,0]
-        j[:,3] = state[1,0]
+        j = np.asmatrix(np.zeros((self.n_bssids, 2)))
+        j[:,0] = self.A[:,2] * 2 * np.asmatrix(state[0]) + self.A[:,0]
+        j[:,1] = self.A[:,3] * 2 * np.asmatrix(state[1]) + self.A[:,1]
         return j
 
     def funcH(self, state):
+        if state.ndim == 1:
+            state = state.reshape((state.size, 1))
         # first add the non-linear state descriptors
         state = self.augment_state(state)
         # zero-mean it
@@ -254,12 +275,12 @@ class WiLoc:
 
     def generate_simple(self):
         self.data = np.mat([
-          [0, 0, 1, 1],
-          [1, 1, 1, 0],
-          [2, 4, 1, 1],
-          [3, 9, 1, 4]
+          [0, 0, 0, 0, 1, 4, 0],
+          [1, 0.1, 1, 0.01, 0, 1, 1],
+          [2, 0.1, 4, 0.01, 1, 0, 4],
+          [3, 0, 9, 0, 4, 1, 9]
           ]).T
-        self.times = np.mat([[0, 1, 2]])
+        self.times = np.mat([[0, 1, 2, 3]])
 
     def display_wifi_maps(self, resolution=0.1):
         xb = self.min_pos[0,0]
@@ -288,20 +309,36 @@ if __name__ == "__main__":
     locator = WiLoc()
     # locator.load_data_from_json()
     # locator.save_pickle()
-    locator.load_pickle()
-    # locator.generate_simple()
+    # locator.load_pickle()
+    locator.generate_simple()
     locator.compute_basics()
     locator.compute_transform()
     print 'LMS residual error=%.2f' % locator.compute_trans_error()
-    print 'A=', locator.A
-    # locator.print_histogram(locator.query([0, 0]))
-    # locator.print_histogram(locator.query([1, 1]))
-    # locator.print_histogram(locator.query([2, 4]))
-    # locator.print_histogram(locator.query([3, 9]))
+    # print 'A=', locator.A
+    # locator.print_histogram(locator.query(0, 0))
+    # locator.print_histogram(locator.query(1, 0))
+    # locator.print_histogram(locator.query(2, 0))
+    # locator.print_histogram(locator.query(3, 0))
 
-    print locator.JacH(np.mat([[2,2]]).T)
+    # print 'JacH', locator.JacH(np.array([[0,0]]).T)
+    # print 'JacH', locator.JacH(np.array([[1,0]]).T)
+    # print 'JacH', locator.JacH(np.array([[2,0]]).T)
+    # print 'JacH', locator.JacH(np.array([[3,0]]).T)
+    # print 'funcH', locator.funcH(np.array([2,0]).T)
 
-    locator.display_wifi_maps()
+    Sigma = np.mat([[0.3, 0], [0, 0.3]])
+    mu = np.mat([0, 0]).T
+    z = np.mat([1, 0, 4]).T
+
+    locator.update(mu, Sigma, z)
+
+
+    # print 'JacH', locator.JacH(np.array([[0,-30]]).T)
+    # print 'JacH', locator.JacH(np.array([[0,0]]).T)
+    # print 'JacH', locator.JacH(np.array([[0,30]]).T)
+    # print 'funcH', locator.funcH(np.array([0,0]).T)
+
+    #locator.display_wifi_maps()
     # locator.print_histogram(locator.query(0, -70))
     # locator.print_histogram(locator.query(0, 0))
     # locator.print_histogram(locator.query(0, 50))
