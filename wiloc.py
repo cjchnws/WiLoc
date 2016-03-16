@@ -23,7 +23,7 @@ class WiLoc:
 
         self.data = None
         self.times = None
-        self.split_PW = 4
+        self.split_PW = 6
 
     def db_to_nw(self, db):
         # see https://en.wikipedia.org/wiki/DBm
@@ -95,11 +95,13 @@ class WiLoc:
         for v in new_d:
             bssid = v['bssid']
             if bssid in initial:
-                initial[bssid] = self.db_to_nw(float(v['signal'])) # v['quality']
+                initial[bssid] = self.db_to_nw(float(v['signal']))
                 data[c, 0] = v['position']['x']
                 data[c, 1] = v['position']['y']
                 data[c, 2] = v['position']['x'] ** 2
                 data[c, 3] = v['position']['y'] ** 2
+                data[c, 4] = 1  # offset
+                data[c, 5] = 1  # offset
                 data[c, self.split_PW:] = initial.values()
                 t = parse(v['_meta']['inserted_at'])
                 times[c, 0] = time.mktime(t.timetuple()) \
@@ -145,7 +147,7 @@ class WiLoc:
         print 'n_points=%d, n_bssids=%d' % (self.n_points, self.n_bssids)
 
         self.mu = np.mean(self.data, axis=1)
-        self.data_c = self.data - self.mu
+        self.data_c = self.data
         self.velocities = self.data[0:2, 1:]-self.data[0:2, 0:-1]
 
         # for times to work we need the corresponding robot_pose times,
@@ -159,8 +161,8 @@ class WiLoc:
         # print self.n_points-self.small_diff.size, vels[self.small_diff]
         self.min_pos = np.min(self.data[0:2, :], axis=1)
         self.max_pos = np.max(self.data[0:2, :], axis=1)
-        self.min_dist = np.min(self.data[2:, :], axis=1)
-        self.max_dist = np.max(self.data[2:, :], axis=1)
+        self.min_dist = np.min(self.data[self.split_PW:, :], axis=1)
+        self.max_dist = np.max(self.data[self.split_PW:, :], axis=1)
         print 'minimum pos', self.min_pos.T
         print 'maximum pos', self.max_pos.T
         print 'minimum dist', self.min_dist.T
@@ -205,11 +207,10 @@ class WiLoc:
         return obs
 
     def update(self, mu, Sigma, z):
-        z = z - self.mu_W
-        mu = mu - self.mu_P[0:2]
-        obs = self.funcH(mu)
-        H = self.JacH(mu)
         print 'Kalman update: '
+        obs = self.funcH(mu)
+        print '  exp obs=', obs
+        H = self.JacH(mu)
         print "  mu=", mu
         print "  Sigma=", Sigma
         print '  H=', H
@@ -222,15 +223,16 @@ class WiLoc:
         Sigma_e = (np.eye(2) - K * H) * Sigma
         print '  Sigma_e=', Sigma_e
 #        sigma_new = (np.eye())
-        return obs
+        return mu_e, Sigma_e
 
     def augment_state(self, orig):
         # assumes the original state to have 2 coordinates
         a = np.asarray(orig)
+        ones = np.ones(a.shape)
         if self.split_PW < 4:
             return a
         else:
-            return np.vstack((a, a * a))
+            return np.vstack((a, a * a, ones))
 
     def JacH(self, state):
         j = np.asmatrix(np.zeros((self.n_bssids, 2)))
@@ -244,9 +246,9 @@ class WiLoc:
         # first add the non-linear state descriptors
         state = self.augment_state(state)
         # zero-mean it
-        query = np.asmatrix(state) - self.mu_P
+        query = np.asmatrix(state)
         # do the linear transform into observation space
-        results = (self.A * query) + self.mu_W
+        results = (self.A * query)
         return results
 
     def grid_query(self, xr, yr):
@@ -275,10 +277,10 @@ class WiLoc:
 
     def generate_simple(self):
         self.data = np.mat([
-          [0, 0, 0, 0, 1, 4, 0],
-          [1, 0.1, 1, 0.01, 0, 1, 1],
-          [2, 0.1, 4, 0.01, 1, 0, 4],
-          [3, 0, 9, 0, 4, 1, 9]
+          [0, 0, 0, 0, 1, 1, 1, 4, 0],
+          [1, 0.1, 1, 0.01, 1, 1, 0, 1, 1],
+          [2, 0.1, 4, 0.01, 1, 1, 1, 0, 4],
+          [3, 0, 9, 0, 1, 1, 4, 1, 9]
           ]).T
         self.times = np.mat([[0, 1, 2, 3]])
 
@@ -314,11 +316,11 @@ if __name__ == "__main__":
     locator.compute_basics()
     locator.compute_transform()
     print 'LMS residual error=%.2f' % locator.compute_trans_error()
-    # print 'A=', locator.A
-    # locator.print_histogram(locator.query(0, 0))
-    # locator.print_histogram(locator.query(1, 0))
-    # locator.print_histogram(locator.query(2, 0))
-    # locator.print_histogram(locator.query(3, 0))
+    print 'A=', locator.A
+    locator.print_histogram(locator.query(0, 0))
+    locator.print_histogram(locator.query(1, 0.1))
+    locator.print_histogram(locator.query(2, 0))
+    locator.print_histogram(locator.query(3, 0))
 
     # print 'JacH', locator.JacH(np.array([[0,0]]).T)
     # print 'JacH', locator.JacH(np.array([[1,0]]).T)
@@ -327,10 +329,15 @@ if __name__ == "__main__":
     # print 'funcH', locator.funcH(np.array([2,0]).T)
 
     Sigma = np.mat([[0.3, 0], [0, 0.3]])
-    mu = np.mat([0, 0]).T
-    z = np.mat([1, 0, 4]).T
+    mu = np.mat([2, 0.5]).T
+    z = np.mat([4, 1, 9]).T
 
-    locator.update(mu, Sigma, z)
+    while True:
+        mu, Sigma = locator.update(mu, Sigma, z)
+        key = cv.waitKey(10000)
+        if key == ord('q'):
+            break
+
 
 
     # print 'JacH', locator.JacH(np.array([[0,-30]]).T)
