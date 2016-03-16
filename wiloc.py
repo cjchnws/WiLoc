@@ -25,7 +25,6 @@ class WiLoc:
         self.times = None
         self.split_PW = 4
 
-
     def db_to_nw(self, db):
         # see https://en.wikipedia.org/wiki/DBm
         # print db/10.0
@@ -209,18 +208,41 @@ class WiLoc:
     def augment_state(self, orig):
         # assumes the original state to have 2 coordinates
         a = np.asarray(orig)
-        return np.hstack((a, a * a))
+        if self.split_PW < 4:
+            return a
+        else:
+            return np.vstack((a, a * a))
+
+    def JacH(self, state):
+        j = np.ones((self.n_bssids, 4))
+        j[:,2] = state[0,0]
+        j[:,3] = state[1,0]
+        return j
+
+    def funcH(self, state):
+        # first add the non-linear state descriptors
+        state = self.augment_state(state)
+        # zero-mean it
+        query = np.asmatrix(state) - self.mu_P
+        # do the linear transform into observation space
+        results = (self.A * query) + self.mu_W
+        return results
 
     def grid_query(self, xr, yr):
         coords = [[a, b] for a in xr for b in yr]
-        states = self.augment_state(np.mat(coords)).T
-        query = np.asmatrix(states) #- self.mu_P
-        results = (self.A * query) + self.mu_W
-        #results = (np.eye(4) * query)
-        results = np.reshape(np.asarray(results).T, (len(xr), len(yr), self.n_bssids))
+        results = self.funcH(np.mat(coords).T)
+        results = np.reshape(np.asarray(results).T,
+                             (len(xr), len(yr), self.n_bssids))
         return results
-        #print results[:,:,1]
-        #print results[:,:,2]
+
+    def grid_query_OFF(self, xr, yr):
+        results = np.zeros([len(xr), len(yr), self.n_bssids])
+        for xi in range(0, len(xr)):
+            for yi in range(0, len(yr)):
+                state = np.mat([xr[xi], yr[yi]]).T
+                expObs = self.funcH(state)
+                results[xi, yi, :] = np.reshape(expObs, (self.n_bssids))
+        return results
 
     def print_histogram(self, vec, res=1):
         for x in np.nditer(vec):
@@ -276,6 +298,8 @@ if __name__ == "__main__":
     # locator.print_histogram(locator.query([1, 1]))
     # locator.print_histogram(locator.query([2, 4]))
     # locator.print_histogram(locator.query([3, 9]))
+
+    print locator.JacH(np.mat([[2,2]]).T)
 
     locator.display_wifi_maps()
     # locator.print_histogram(locator.query(0, -70))
