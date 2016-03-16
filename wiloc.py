@@ -443,7 +443,7 @@ if __name__ == "__main__":
       [0, 1, 0, 0],
       ]).T
     R = np.array([0.05, 0.05, .1, .1])
-    Q = np.eye(locator.n_bssids) * .1
+    Q = locator.C_W
 
     ekf = EKF(R, Q, A=A, B=B, funcH=locator.funcH, funcJacobianH=locator.JacH)
 
