@@ -22,15 +22,18 @@ class WiLoc:
         self.img = np.zeros([300, 300, 3])
 
         self.data = None
+        self.times = None
+        self.split_PW = 4
 
-    def db_to_mw(self, db):
+
+    def db_to_nw(self, db):
         # see https://en.wikipedia.org/wiki/DBm
         # print db/10.0
-        return 10.0 ** (db/10.0)
+        return (10.0 ** (db/10.0)) * 1e6
 
     def db_to_rel_distance(self, db):
         # see https://en.wikipedia.org/wiki/Free-space_path_loss
-        mw = self.db_to_mw(db)
+        mw = self.db_to_nw(db)
         return 0.01 / (sqrt(mw))
 
     #print db_to_rel_distance(-40.0)
@@ -77,7 +80,7 @@ class WiLoc:
 
         for v in new_d:
             c_bssids[v['bssid']] += 1
-            s_bssids[v['bssid']] += self.db_to_rel_distance(float(v['signal']))
+            s_bssids[v['bssid']] += self.db_to_nw(float(v['signal']))
 
         for b in j['bssids']:
             if c_bssids[b] >= observation_limit:
@@ -85,7 +88,7 @@ class WiLoc:
 
         n_bssids = len(initial)
         n_points = len(j['data'])
-        data = np.mat(np.zeros((n_points, n_bssids+3)))
+        data = np.mat(np.zeros((n_points, n_bssids+self.split_PW)))
         times = np.mat(np.zeros((n_points, 1)))
 
         c = 0
@@ -93,11 +96,12 @@ class WiLoc:
         for v in new_d:
             bssid = v['bssid']
             if bssid in initial:
-                initial[bssid] = v['quality']
+                initial[bssid] = self.db_to_nw(float(v['signal'])) # v['quality']
                 data[c, 0] = v['position']['x']
                 data[c, 1] = v['position']['y']
-                data[c, 2] = 1
-                data[c, 3:] = initial.values()
+                data[c, 2] = v['position']['x'] ** 2
+                data[c, 3] = v['position']['y'] ** 2
+                data[c, self.split_PW:] = initial.values()
                 t = parse(v['_meta']['inserted_at'])
                 times[c, 0] = time.mktime(t.timetuple()) \
                     * 1000.0 + t.microsecond / 1000.0
@@ -137,7 +141,7 @@ class WiLoc:
     def compute_basics(self):
         self.n_bssids, self.n_points = self.data.shape
         # substract the 3 coords fields
-        self.n_bssids -= 3
+        self.n_bssids -= self.split_PW
 
         print 'n_points=%d, n_bssids=%d' % (self.n_points, self.n_bssids)
 
@@ -171,12 +175,12 @@ class WiLoc:
         #cv.waitKey(0)
         self.C_full = (self.data_c * self.data_c.T) / self.n_points
 
-        self.mu_P = self.mu[0:2]
-        self.C_P = self.C_full[0:2, 0:2]
+        self.mu_P = self.mu[0:self.split_PW]
+        self.C_P = self.C_full[0:self.split_PW, 0:self.split_PW]
         print "mu_p=", self.mu_P.T
         print "C_p=", self.C_P
-        self.mu_W = self.mu[3:]
-        self.C_W = self.C_full[3:, 3:]
+        self.mu_W = self.mu[self.split_PW:]
+        self.C_W = self.C_full[self.split_PW:, self.split_PW:]
         print "mu_w=", self.mu_W.T
         print "C_w=", np.diag(self.C_W)
 
@@ -186,9 +190,9 @@ class WiLoc:
 
     def compute_transform(self):
         # matrix of all coordinates
-        self.P = self.data_c[0:2, :]
+        self.P = self.data_c[0:self.split_PW, :]
         # matrix of all wifi signals
-        self.W = self.data_c[3:, :]
+        self.W = self.data_c[self.split_PW:, :]
 
         # find least-square solution A to transform form P => W
         # A*P = W <=> A= W \ P
@@ -196,11 +200,29 @@ class WiLoc:
 
         self.A = self.W * self.Pp
 
-    def query(self, pos):
-        query = np.mat(pos).T - self.mu_P
+
+    def query(self, x, y):
+        pos = np.mat([x, y, x ** 2, y ** 2]).T
+        query = pos - self.mu_P
         return (self.A * query) + self.mu_W
 
-    def print_histogram(self, vec, res=3):
+    def augment_state(self, orig):
+        # assumes the original state to have 2 coordinates
+        a = np.asarray(orig)
+        return np.hstack((a, a * a))
+
+    def grid_query(self, xr, yr):
+        coords = [[a, b] for a in xr for b in yr]
+        states = self.augment_state(np.mat(coords)).T
+        query = np.asmatrix(states) #- self.mu_P
+        results = (self.A * query) + self.mu_W
+        #results = (np.eye(4) * query)
+        results = np.reshape(np.asarray(results).T, (len(xr), len(yr), self.n_bssids))
+        return results
+        #print results[:,:,1]
+        #print results[:,:,2]
+
+    def print_histogram(self, vec, res=1):
         for x in np.nditer(vec):
             bars = '*' * int(x / res)
             print '  % 4.2f %s' % (x, bars)
@@ -208,16 +230,56 @@ class WiLoc:
 
         #cv.waitKey(0)
 
+    def generate_simple(self):
+        self.data = np.mat([
+          [0, 0, 1, 1],
+          [1, 1, 1, 0],
+          [2, 4, 1, 1],
+          [3, 9, 1, 4]
+          ]).T
+        self.times = np.mat([[0, 1, 2]])
+
+    def display_wifi_maps(self, resolution=0.1):
+        xb = self.min_pos[0,0]
+        xe = self.max_pos[0,0]
+        xsteps = int((xe - xb) / resolution)
+        yb = self.min_pos[1,0]
+        ye = self.max_pos[1,0]
+        ysteps = int((ye - yb) / resolution)
+        print ysteps
+        r = locator.grid_query(np.linspace(xb, xe, xsteps),
+                               np.linspace(yb, ye, ysteps))
+        for i in range(0, self.n_bssids):
+            print i
+            img = cv.normalize((r[:, :, [i,i,i]]), alpha=0,
+                               beta=1, norm_type=cv.NORM_MINMAX)
+            cv.putText(img, str(i), (ysteps/2, xsteps/2), cv.FONT_HERSHEY_PLAIN,
+                       2, (0, 0, 255))
+
+            cv.imshow('location', img)
+            key = cv.waitKey(0)
+            if key == ord('q'):
+                break
+
 
 if __name__ == "__main__":
     locator = WiLoc()
-    #locator.load_data_from_json()
-    #locator.save_pickle()
+    # locator.load_data_from_json()
+    # locator.save_pickle()
     locator.load_pickle()
+    # locator.generate_simple()
     locator.compute_basics()
     locator.compute_transform()
-    print 'least mean square residual error=%.2f' % locator.compute_trans_error()
-    locator.print_histogram(locator.query([0, -70]))
-    locator.print_histogram(locator.query([0, 50]))
-    locator.print_histogram(locator.query([-34, 50]))
-    locator.print_histogram(locator.query([-34, -70]))
+    print 'LMS residual error=%.2f' % locator.compute_trans_error()
+    print 'A=', locator.A
+    # locator.print_histogram(locator.query([0, 0]))
+    # locator.print_histogram(locator.query([1, 1]))
+    # locator.print_histogram(locator.query([2, 4]))
+    # locator.print_histogram(locator.query([3, 9]))
+
+    locator.display_wifi_maps()
+    # locator.print_histogram(locator.query(0, -70))
+    # locator.print_histogram(locator.query(0, 0))
+    # locator.print_histogram(locator.query(0, 50))
+    # locator.print_histogram(locator.query(-34, 50))
+    # locator.print_histogram(locator.query(-34, -70))
