@@ -59,8 +59,13 @@ class EKF:
         if B is None:
             B = self.B
 
-        print "not implemented yet"
-        return mu, Sigma
+        if u is None:
+            mu_p = A * mu
+        else:
+            mu_p = A * mu + B * u
+        Sigma_p = A * Sigma * A.T + self.R
+
+        return mu_p, Sigma_p
 
     def update(self, mu, Sigma, z):
         # giving it a shorter name:
@@ -186,28 +191,42 @@ class WiLoc:
         self.data = data
         self.times = times
 
-    def draw_location(self, img, position, scale=10):
+    def coord_to_pixel(self, img, mu):
         s = img.shape
-        p = (int(s[0] / 2.0 + position[0] * scale),
-             int(s[1] / 2.0 + position[1] * scale))
+        dx = self.max_pos - self.min_pos
+        scale = [dx[0] / s[1], dx[1] / s[0]]
+        scale = np.max(scale) * 2
+        p = (int(s[1] / 2.0 + (mu[0]) / scale),
+             int(s[0] / 2.0 + (mu[1]) / scale))
 
         if p[0] < 0:
-            return
-        if p[0] >= s[0]:
-            return
+            return None
+        if p[0] >= s[1]:
+            return None
         if p[1] < 0:
-            return
-        if p[1] >= s[1]:
-            return
+            return None
+        if p[1] >= s[0]:
+            return None
+        return p
 
-        cv.circle(img, p, 3, (0, 0, 255), -1)
+    def draw_state(self, img, mu, sigma=None, color=(0, 0, 255)):
+        p = self.coord_to_pixel(img, mu)
+        cv.circle(img, p, 3, color, -1)
 
-    def draw_locations(self, img, data, scale=10):
+
+    def draw_locations(self, img, data, color=(0, 0, 255)):
         c = 0
         for r in data.T:
-            self.draw_location(img, (r[0, 0], r[0, 1]), scale)
+            self.draw_state(img, (r[0, 0], r[0, 1]), sigma=None, color=color)
             c += 1
-        print "drew circles: ", c
+
+    def detect_motion(self):
+        self.motion_vecs = self.data[0:2, 1:]-self.data[0:2, 0:-1]
+        motions = np.linalg.norm(self.motion_vecs, axis=0)
+
+        self.big_diff = (motions > 0.01).nonzero()
+        return self.big_diff[0]
+        # print self.n_points-self.small_diff.size, vels[self.small_diff]
 
     def compute_basics(self):
         self.n_bssids, self.n_points = self.data.shape
@@ -218,7 +237,6 @@ class WiLoc:
 
         self.mu = np.mean(self.data, axis=1)
         self.data_c = self.data
-        self.velocities = self.data[0:2, 1:]-self.data[0:2, 0:-1]
 
         # for times to work we need the corresponding robot_pose times,
         # not the wifi times!
@@ -276,24 +294,24 @@ class WiLoc:
         obs = self.funcH(pos)
         return obs
 
-    def update(self, mu, Sigma, z):
-        print 'Kalman update: '
-        obs = self.funcH(mu)
-        print '  exp obs=', obs
-        H = self.JacH(mu)
-        print "  mu=", mu
-        print "  Sigma=", Sigma
-        print '  H=', H
-        Q = np.eye(self.n_bssids) * 0.1
-        print '  Q=', Q
-        K = Sigma * H.T * np.linalg.inv(H * Sigma * H.T + Q)
-        print '  K=', K
-        mu_e = mu + K * (z - self.funcH(mu))
-        print '  me_e=', mu_e
-        Sigma_e = (np.eye(2) - K * H) * Sigma
-        print '  Sigma_e=', Sigma_e
-#        sigma_new = (np.eye())
-        return mu_e, Sigma_e
+#     def update(self, mu, Sigma, z):
+#         print 'Kalman update: '
+#         obs = self.funcH(mu)
+#         print '  exp obs=', obs
+#         H = self.JacH(mu)
+#         print "  mu=", mu
+#         print "  Sigma=", Sigma
+#         print '  H=', H
+#         Q = np.eye(self.n_bssids) * 0.1
+#         print '  Q=', Q
+#         K = Sigma * H.T * np.linalg.inv(H * Sigma * H.T + Q)
+#         print '  K=', K
+#         mu_e = mu + K * (z - self.funcH(mu))
+#         print '  me_e=', mu_e
+#         Sigma_e = (np.eye(2) - K * H) * Sigma
+#         print '  Sigma_e=', Sigma_e
+# #        sigma_new = (np.eye())
+#         return mu_e, Sigma_e
 
     def augment_state(self, orig):
         # assumes the original state to have 2 coordinates
@@ -314,7 +332,7 @@ class WiLoc:
         if state.ndim == 1:
             state = state.reshape((state.size, 1))
         # first add the non-linear state descriptors
-        state = self.augment_state(state)
+        state = self.augment_state(state[0:2,:])
         # zero-mean it
         query = np.asmatrix(state)
         # do the linear transform into observation space
@@ -406,19 +424,33 @@ if __name__ == "__main__":
     # print 'JacH', locator.JacH(np.array([[3,0]]).T)
     # print 'funcH', locator.funcH(np.array([2,0]).T)
 
-    R = np.array([0.5, 0.5])
-    Q = np.eye(locator.n_bssids) * 0.5
+    R = np.array([.5, .5])
+    Q = np.eye(locator.n_bssids) * 0.4
 
     ekf = EKF(R, Q, funcH=locator.funcH, funcJacobianH=locator.JacH)
 
-    Sigma = np.mat([[5, 0], [5, 0.3]])
-    mu = np.mat([10.0, 20.0]).T
     print locator.data[locator.split_PW:,0]
     #z = np.mat([6, 9, 1]).T
-    z = locator.data[locator.split_PW:,0]
+    
 
-    while True:
-        mu, Sigma = ekf.update(mu, Sigma, z)
+    img  = np.zeros((600,300,3), np.uint8)+100
+
+    valid_points = locator.detect_motion()
+
+    locator.draw_locations(img, locator.data[0:2,valid_points], color=(255, 255, 255))
+
+    Sigma = np.eye(2) * 1
+    mu = locator.data[0:2,valid_points[0]]
+    for p in valid_points:
+        img  = np.zeros((600,300,3), np.uint8)+100
+        z = locator.data[locator.split_PW:,p]
+        mu_true = locator.data[0:2,p]
+        print 'real mu: ', mu_true
+        locator.draw_state(img, mu_true, None, color=(0, 255, 0))
+        mu_p, Sigma_p = ekf.predict(mu, Sigma)
+        mu, Sigma = ekf.update(mu_p, Sigma_p, z)
+        locator.draw_state(img, mu, Sigma, color=(0, 0, 255))
+        cv.imshow('location', img)
         key = cv.waitKey(10000)
         if key == ord('q'):
             break
