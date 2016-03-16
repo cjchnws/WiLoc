@@ -20,7 +20,9 @@ class EKF:
 
     def __init__(self, R, Q,
                  A=None, B=None, C=None,
-                 funcH=None, funcJacobianH=None):
+                 funcH=None, funcJacobianH=None,
+                 verbose=True):
+        self.verbose = verbose
         if Q.ndim > 1:
             self.Q = Q
         else:
@@ -61,20 +63,32 @@ class EKF:
         return mu, Sigma
 
     def update(self, mu, Sigma, z):
+        # giving it a shorter name:
         Q = self.Q
+        # use the non-linear function to compute the expected outcome
         expect_obs = self.funcH(mu)
+
+        # use the Jacobian to estimate the local (linear) changes
         H = self.funcJacobianH(mu)
-        print 'Kalman update: '
-        print '  expect_obs=', expect_obs
-        print "  mu=", mu
-        print "  Sigma=", Sigma
-        print '  H=', H
+
+        # compute the Kalman gain
         K = Sigma * H.T * np.linalg.inv(H * Sigma * H.T + Q)
-        print '  K=', K
+
+        # estimate the new mean value after observation
         mu_e = mu + K * (z - expect_obs)
-        print '  me_e=', mu_e
+        # estimate the new Covariance after observation
         Sigma_e = (np.eye(self.n_states) - K * H) * Sigma
-        print '  Sigma_e=', Sigma_e
+
+        if self.verbose:
+            print 'Kalman update: '
+            print '  expect_obs=', expect_obs
+            print "  mu=", mu
+            print "  Sigma=", Sigma
+            print '  H=', H
+            print '  K=', K
+            print '  me_e=', mu_e
+            print '  Sigma_e=', Sigma_e
+
         return mu_e, Sigma_e
 
 
@@ -97,14 +111,6 @@ class WiLoc:
         # see https://en.wikipedia.org/wiki/Free-space_path_loss
         mw = self.db_to_nw(db)
         return 0.01 / (sqrt(mw))
-
-    #print db_to_rel_distance(-40.0)
-    #print db_to_rel_distance(-50.0)
-    #print db_to_rel_distance(-60.0)
-    #print db_to_rel_distance(-70.0)
-    #print db_to_rel_distance(-80.0)
-
-    #exit()
 
     def load_pickle(self, filename="save.p"):
         d = pickle.load(open(filename, "rb"))
@@ -169,6 +175,7 @@ class WiLoc:
                 t = parse(v['_meta']['inserted_at'])
                 times[c, 0] = time.mktime(t.timetuple()) \
                     * 1000.0 + t.microsecond / 1000.0
+                print 'complete: % 3.2f%%' % (c *100.0 / len(new_d))
                 c += 1
 
         data = data[1:c, :]
@@ -346,10 +353,10 @@ class WiLoc:
 
     def generate_simple(self):
         raw_data = np.array([
-          [0, 0, 1, 4, 0],
-          [1, 0.1, 0, 1, 1],
-          [2, 0.1, 1, 0, 4],
-          [3, 0, 4, 1, 9]
+          [0, 0,    9,  6, 10],
+          [1, 0.1, 10,  9,  9],
+          [2, 0.1,  9, 10,  6],
+          [3, 0,    6,  9,  1]
           ]).T
         self.data = self.augment_raw_data(raw_data)
         self.times = np.arange(0, self.data.shape[1])
@@ -381,8 +388,9 @@ if __name__ == "__main__":
     locator = WiLoc()
     # locator.load_data_from_json()
     # locator.save_pickle()
-    # locator.load_pickle()
-    locator.generate_simple()
+    # exit()
+    locator.load_pickle()
+    #locator.generate_simple()
     locator.compute_basics()
     locator.compute_transform()
     print 'LMS residual error=%.2f' % locator.compute_trans_error()
@@ -398,14 +406,16 @@ if __name__ == "__main__":
     # print 'JacH', locator.JacH(np.array([[3,0]]).T)
     # print 'funcH', locator.funcH(np.array([2,0]).T)
 
-    R = np.array([0.1, 0.1])
+    R = np.array([0.5, 0.5])
     Q = np.eye(locator.n_bssids) * 0.5
 
     ekf = EKF(R, Q, funcH=locator.funcH, funcJacobianH=locator.JacH)
 
-    Sigma = np.mat([[0.3, 0], [0, 0.3]])
-    mu = np.mat([2, 0.5]).T
-    z = np.mat([4, 1, 9]).T
+    Sigma = np.mat([[5, 0], [5, 0.3]])
+    mu = np.mat([10.0, 20.0]).T
+    print locator.data[locator.split_PW:,0]
+    #z = np.mat([6, 9, 1]).T
+    z = locator.data[locator.split_PW:,0]
 
     while True:
         mu, Sigma = ekf.update(mu, Sigma, z)
