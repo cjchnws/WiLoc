@@ -5,6 +5,7 @@ from pymongo import MongoClient
 from json import load
 from datetime import datetime
 from math import sqrt
+import time
 import pickle
 
 import cv2 as cv
@@ -41,12 +42,15 @@ class WiLoc:
     #exit()
 
     def load_pickle(self, filename="save.p"):
-        self.data = pickle.load(open(filename, "rb"))
+        d = pickle.load(open(filename, "rb"))
+        self.data = d['data']
+        self.times = d['times']
         print 'loaded'
 
     def save_pickle(self, filename="save.p"):
-        pickle.dump(self.data, open("save.p", "wb"))
-        print 'loaded'
+        pickle.dump({'data': self.data, 'times': self.times},
+                    open("save.p", "wb"))
+        print 'saved'
 
     def load_data_from_json(self, filename='data-aaf.json', limit=None,
                             skip=0, observation_limit=500):
@@ -82,8 +86,10 @@ class WiLoc:
         n_bssids = len(initial)
         n_points = len(j['data'])
         data = np.mat(np.zeros((n_points, n_bssids+3)))
+        times = np.mat(np.zeros((n_points, 1)))
 
         c = 0
+
         for v in new_d:
             bssid = v['bssid']
             if bssid in initial:
@@ -92,13 +98,18 @@ class WiLoc:
                 data[c, 1] = v['position']['y']
                 data[c, 2] = 1
                 data[c, 3:] = initial.values()
+                t = parse(v['_meta']['inserted_at'])
+                times[c, 0] = time.mktime(t.timetuple()) \
+                    * 1000.0 + t.microsecond / 1000.0
                 c += 1
 
         data = data[1:c, :]
+        times = times[1:c, :]
         data = data.T
 
         print data.shape
         self.data = data
+        self.times = times
 
     def draw_location(self, img, position, scale=10):
         s = img.shape
@@ -132,7 +143,17 @@ class WiLoc:
 
         self.mu = np.mean(self.data, axis=1)
         self.data_c = self.data - self.mu
+        self.velocities = self.data[0:2, 1:]-self.data[0:2, 0:-1]
 
+        # for times to work we need the corresponding robot_pose times,
+        # not the wifi times!
+
+        # self.timediff = self.times[1:, 0]-self.times[0:-1, 0] + 0.0000001
+        # vels = np.divide(np.linalg.norm(self.velocities, axis=0), np.array(self.timediff.T))
+
+        # self.small_diff,b = (vels > 0.01).nonzero()
+        # print self.small_diff.size, vels[0, self.small_diff], np.min(self.timediff)
+        # print self.n_points-self.small_diff.size, vels[self.small_diff]
         self.min_pos = np.min(self.data[0:2, :], axis=1)
         self.max_pos = np.max(self.data[0:2, :], axis=1)
         self.min_dist = np.min(self.data[2:, :], axis=1)
@@ -190,6 +211,8 @@ class WiLoc:
 
 if __name__ == "__main__":
     locator = WiLoc()
+    #locator.load_data_from_json()
+    #locator.save_pickle()
     locator.load_pickle()
     locator.compute_basics()
     locator.compute_transform()
