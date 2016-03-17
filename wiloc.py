@@ -15,7 +15,7 @@ if __name__ == "__main__":
     # locator.save_pickle()
     # exit()
     locator.load_pickle()
-    #locator.generate_simple()
+    # locator.generate_simple()
     locator.compute_basics()
     # valid_points = locator.detect_motion()
     # locator.data = locator.data[:,valid_points]
@@ -43,7 +43,7 @@ if __name__ == "__main__":
       [0, 1],
       ]).T
     R = np.array([0.1, 0.1])
-    Q = locator.C_W 
+    Q = locator.C_W
     # A = np.mat([
     #   [1, 0, 0, 0],
     #   [0, 1, 0, 0],
@@ -62,25 +62,26 @@ if __name__ == "__main__":
     print locator.data[locator.split_PW:, 0]
     # z = np.mat([6, 9, 1]).T
 
-
-    img  = np.zeros((600,300,3), np.uint8)+100
+    img = np.zeros((600, 300, 3), np.uint8) + 100
 
     valid_points = locator.detect_motion()
 
     locator.draw_locations(img, locator.data[0:2, valid_points],
                            color=(255, 255, 255))
 
-    #Sigma = np.eye(4) * 10
+    # Sigma = np.eye(4) * 10
     Sigma = np.eye(2) * 10
+
+    # start off at the wrong place (by 20m)
     mu = locator.data[0:2, valid_points[0]] - 20
-    #mu[2:4,0] = [[0,0]]
+    # mu[2:4,0] = [[0,0]]
     for p in valid_points:
-        img  = np.zeros((600, 300, 3), np.uint8)+100
-        z = locator.data[locator.split_PW:,p]
-        mu_true = locator.data[0:2,p]
-        print 'vel: ', locator.motion_vecs[:,p]
+        img = np.zeros((600, 300, 3), np.uint8) + 100
+        z = locator.data[locator.split_PW:, p]
+        mu_true = locator.data[0:2, p]
+        print 'vel: ', locator.motion_vecs[:, p]
         print 'real mu: ', mu_true
-        u = locator.motion_vecs[0:2,p]
+        u = locator.motion_vecs[0:2, p]
         print 'real u: ', u
         locator.draw_state(img, mu_true, None, color=(0, 255, 0))
         mu_p, Sigma_p = ekf.predict(mu, Sigma, u=u)
