@@ -233,8 +233,8 @@ class WiLocModel:
         s = np.mat([
             [1, 0],
             [0, 1],
-            [2*state[0], 0],
-            [0, 2*state[1]],
+            [2 * state[0], 0],
+            [0, 2 * state[1]],
             [0, 0],
             [0, 0]
             ])
