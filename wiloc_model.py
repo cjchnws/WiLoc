@@ -230,8 +230,15 @@ class WiLocModel:
 
     def JacH(self, state):
         j = np.asmatrix(np.zeros((self.n_bssids, 2)))
-        j[:, 0] = self.A[:, 2] * 2 * np.asmatrix(state[0]) + self.A[:, 0]
-        j[:, 1] = self.A[:, 3] * 2 * np.asmatrix(state[1]) + self.A[:, 1]
+        s = np.mat([
+            [1, 0],
+            [0, 1],
+            [2*state[0], 0],
+            [0, 2*state[1]],
+            [0, 0],
+            [0, 0]
+            ])
+        j = self.A * s
         return j
 
     def funcH(self, state):
@@ -239,7 +246,6 @@ class WiLocModel:
             state = state.reshape((state.size, 1))
         # first add the non-linear state descriptors
         state = self.augment_state(state[0:2, :])
-        # zero-mean it
         query = np.asmatrix(state)
         # do the linear transform into observation space
         results = (self.A * query)
