@@ -125,12 +125,10 @@ class WiLocModel:
             order = vals.argsort()[::-1]
             vals = vals[order] * 5.96  # make it 95 conf
             vecs = vecs[:, order]
-            print 'VECS', vecs, vals
             theta = np.degrees(np.arctan2(*vecs[:, 0][::-1]))
             cv.ellipse(img, (int(p[0]), int(p[1])),
                        (int(vals[0]), int(vals[1])),
                        int(theta), 0, 360, color, 2)
-            print theta
 
     def draw_locations(self, img, data, color=(0, 0, 255)):
         c = 0

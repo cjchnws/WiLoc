@@ -53,13 +53,13 @@ if __name__ == "__main__":
     # exit()
     locator.load_pickle()
     # locator.generate_simple()
-    locator.compute_basics()
+    # locator.compute_basics()
     # valid_points = locator.detect_motion()
     # locator.data = locator.data[:,valid_points]
     locator.compute_basics()
     locator.compute_transform()
     print 'LMS residual error=%.2f' % locator.compute_trans_error()
-    print 'A=', locator.A
+    print 'h(x)=', locator.A
     # locator.print_histogram(locator.query(0, 0))
     # locator.print_histogram(locator.query(1, 0.1))
     # locator.print_histogram(locator.query(2, 0))
@@ -124,6 +124,7 @@ if __name__ == "__main__":
         mu, Sigma = ekf.update(mu_p, Sigma_p, z)
         locator.draw_state(img, mu, Sigma, color=(0, 0, 255))
         cv.imshow('location', img)
+        print '***************************************'
         key = cv.waitKey(10000)
         if key == ord('q'):
             break
